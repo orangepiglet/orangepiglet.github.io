@@ -33,7 +33,19 @@ jobs:
           GOOGLE_SCHOLAR_ID: ${{ secrets.GOOGLE_SCHOLAR_ID }}
         run: |
           cd google_scholar_crawler
-          python main.py
+
+          set +e
+          timeout --kill-after=30s 3m python main.py
+          status=$?
+          set -e
+
+          if [ "$status" -eq 124 ]; then
+            echo "::warning::Google Scholar crawler timed out after 3 minutes. Continue to next step."
+            exit 0
+          elif [ "$status" -ne 0 ]; then
+            echo "::error::Crawler failed with exit code $status."
+            exit "$status"
+          fi
 
       - name: Push results
         run: |
