@@ -40,7 +40,7 @@ jobs:
           set -e
 
           if [ "$status" -eq 124 ]; then
-            echo "::warning::Google Scholar crawler timed out after 3 minutes. Continue to next step."
+            echo "::warning::Google Scholar crawler timed out after 3 minutes. Skip this update."
             exit 0
           elif [ "$status" -ne 0 ]; then
             echo "::error::Crawler failed with exit code $status."
@@ -49,7 +49,20 @@ jobs:
 
       - name: Push results
         run: |
+          # If the crawler did not generate a results directory,
+          # skip this update instead of failing the workflow.
+          if [ ! -d "google_scholar_crawler/results" ]; then
+            echo "::warning::No results directory found. Skip pushing citation data."
+            exit 0
+          fi
+
           cd google_scholar_crawler/results
+
+          # If no JSON files were generated, skip this update.
+          if ! compgen -G "*.json" > /dev/null; then
+            echo "::warning::No JSON result files found. Skip pushing citation data."
+            exit 0
+          fi
 
           git init
           git config --local user.name "${GITHUB_ACTOR}"
