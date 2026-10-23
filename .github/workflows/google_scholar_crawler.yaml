@@ -4,14 +4,14 @@ on:
   page_build:
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '0 0-4,8-23 * * *'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v6
@@ -29,25 +29,33 @@ jobs:
           python -m pip install -r google_scholar_crawler/requirements.txt
 
       - name: Run crawler
+        id: crawler
         env:
           GOOGLE_SCHOLAR_ID: ${{ secrets.GOOGLE_SCHOLAR_ID }}
+          PYTHONUNBUFFERED: "1"
         run: |
           cd google_scholar_crawler
 
           set +e
-          timeout --kill-after=30s 3m python main.py
+          timeout --kill-after=30s 3m python -u main.py
           status=$?
           set -e
 
-          if [ "$status" -eq 124 ]; then
-            echo "::warning::Google Scholar crawler timed out after 3 minutes. Skip this update."
-            exit 0
-          elif [ "$status" -ne 0 ]; then
-            echo "::error::Crawler failed with exit code $status."
-            exit "$status"
+          if [ "$status" -eq 0 ]; then
+            echo "success=true" >> "$GITHUB_OUTPUT"
+            echo "Crawler completed successfully."
+
+          elif [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Google Scholar crawler timed out. Skip this update."
+
+          else
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Google Scholar crawler failed with exit code $status. Skip this update and retry on the next scheduled run."
           fi
 
       - name: Push results
+        if: steps.crawler.outputs.success == 'true'
         run: |
           if [ ! -d "google_scholar_crawler/results" ]; then
             echo "::warning::No results directory found. Skip pushing citation data."
@@ -76,15 +84,3 @@ jobs:
 
           export remote_repo="https://${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
           git push "${remote_repo}" HEAD:google-scholar-stats --force
-
-      - name: Purge jsDelivr cache
-        run: |
-          echo "Purging jsDelivr cache..."
-
-          curl -fsS \
-            "https://purge.jsdelivr.net/gh/orangepiglet/orangepiglet.github.io@google-scholar-stats/gs_data.json"
-
-          curl -fsS \
-            "https://purge.jsdelivr.net/gh/orangepiglet/orangepiglet.github.io@google-scholar-stats/gs_data_shieldsio.json"
-
-          echo "jsDelivr cache purged."
